@@ -1,0 +1,57 @@
+# One pod per strategy that auto mode should pick.
+apiVersion: v1
+kind: Pod
+metadata: {name: withtar, namespace: other}
+spec:
+  containers:
+  - name: app
+    image: busybox:1.37
+    command: [sleep, "86400"]
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: inject}
+spec:
+  securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000}
+  containers:
+  - name: app
+    image: xcp-e2e-notar:test
+    imagePullPolicy: Never
+    command: [sleep, infinity]
+    securityContext: {readOnlyRootFilesystem: true}
+    volumeMounts: [{name: tmp, mountPath: /tmp}, {name: data, mountPath: /data}]
+  volumes: [{name: tmp, emptyDir: {}}, {name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: nouname}
+spec:
+  containers:
+  - name: app
+    image: xcp-e2e-nouname:test
+    imagePullPolicy: Never
+    command: [sleep, infinity]
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: nosh}
+spec:
+  containers:
+  - name: app
+    image: registry.k8s.io/pause:3.10
+    securityContext: {runAsUser: 65535}
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes: [{name: data, emptyDir: {}}]
+---
+# The user only comes from the image, so the ephemeral container needs --uid.
+apiVersion: v1
+kind: Pod
+metadata: {name: imageuser}
+spec:
+  containers:
+  - name: app
+    image: registry.k8s.io/pause:3.10
