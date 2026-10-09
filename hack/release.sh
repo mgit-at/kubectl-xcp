@@ -46,14 +46,16 @@ spec:
 
     Depending on what the container provides, it uses tar in the container,
     injects a small static tar helper, copies out file by file with sh and
-    cat, or adds an ephemeral container that reaches the container's
-    filesystem through /proc/1/root.
+    cat, adds an ephemeral container that reaches the container's filesystem
+    through /proc/1/root, or as a last resort reads files with shell builtins.
   caveats: |
     Depending on the container, xcp may
     * leave a small tar helper in /tmp, /var/tmp, /dev/shm or an emptyDir
-      mount of the container, for reuse by later runs, and
+      mount of the container, for reuse by later runs,
     * add an ephemeral container to the pod, which Kubernetes cannot remove
-      until the pod is deleted.
+      until the pod is deleted, and
+    * as a last resort, copy out with shell builtins only, which corrupts
+      binary files in containers without bash (with a warning).
     Pick a strategy explicitly with --strategy, see kubectl xcp --help.
   platforms:
 EOF

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,7 +22,11 @@ const listScript = `cd "$1" || exit
 [ -e "$2" ] || [ -L "$2" ] || { echo "$2: No such file or directory" >&2; exit 1; }
 walk() {
 	if [ -L "$1" ]; then
-		printf 'l%s\0%s\0' "$1" "$(readlink "$1")"
+		if command -v readlink >/dev/null; then
+			printf 'l%s\0%s\0' "$1" "$(readlink "$1")"
+		else
+			echo "xcp: skipping symlink $1: no readlink" >&2
+		fi
 	elif [ -d "$1" ]; then
 		printf 'd%s\0' "$1"
 		for f in "$1"/* "$1"/.[!.]* "$1"/..?*; do
@@ -37,15 +42,43 @@ walk() {
 }
 walk "$2"`
 
-// shellDownload copies src out of a container that only has sh and cat, one
-// cat per file. Modes are approximated and times are not preserved.
+// Read a file with shell builtins only. bash can split at NUL bytes and write
+// them back; LC_ALL=C keeps it from dropping bytes invalid in the locale.
+const bashRead = `LC_ALL=C
+while IFS= read -r -d '' c; do printf '%s\0' "$c"; done <"$1"
+printf '%s' "$c"`
+
+// POSIX read cannot represent NUL bytes and silently drops them.
+const shRead = `while IFS= read -r l; do printf '%s\n' "$l"; done <"$1"
+printf '%s' "$l"`
+
+// builtins sets up copying out with nothing but a shell in the target, for
+// containers without cat where no ephemeral container can be added.
+func (r *remote) builtins(ctx context.Context, target string) error {
+	r.container, r.tar, r.procRoot = target, nil, false
+	if err := r.exec(ctx, []string{"bash", "-c", ":"}, nil, io.Discard, io.Discard); err == nil {
+		r.shell, r.readFile = "bash", []string{"bash", "-c", bashRead, "bash"}
+		fmt.Fprintln(os.Stderr, "xcp: WARNING: copying with bash builtins only: slow, modes are approximated, times are not preserved, and symlinks are skipped without readlink")
+		return nil
+	}
+	if err := r.exec(ctx, []string{"sh", "-c", ":"}, nil, io.Discard, io.Discard); err != nil {
+		return fmt.Errorf("no shell in container %q: %w", target, err)
+	}
+	r.shell, r.readFile = "sh", []string{"sh", "-c", shRead, "sh"}
+	fmt.Fprintln(os.Stderr, "xcp: WARNING: copying with sh builtins only: NUL bytes are silently dropped, so binary files are corrupted (text files are fine); also slow, modes are approximated, times are not preserved, and symlinks are skipped without readlink")
+	return nil
+}
+
+// shellDownload copies src out of a container file by file, listing with the
+// shell and reading each file with readFile. Modes are approximated and
+// times are not preserved.
 func (r *remote) shellDownload(ctx context.Context, src, dst string) error {
 	dir, name := path.Dir(src), path.Base(src)
 	if strings.HasSuffix(src, "/") {
 		dir, name = src, "."
 	}
 	var list bytes.Buffer
-	if err := r.exec(ctx, []string{"sh", "-c", listScript, "sh", dir, name}, nil, &list, os.Stderr); err != nil {
+	if err := r.exec(ctx, []string{r.shell, "-c", listScript, r.shell, dir, name}, nil, &list, os.Stderr); err != nil {
 		return fmt.Errorf("listing %s: %w", src, err)
 	}
 	pr, pw := io.Pipe()
@@ -103,7 +136,7 @@ func (r *remote) shellTar(ctx context.Context, w io.Writer, dir, list string) er
 			if !path.IsAbs(p) {
 				p = "./" + p
 			}
-			if err := r.exec(ctx, []string{"cat", p}, nil, tmp, os.Stderr); err != nil {
+			if err := r.exec(ctx, append(slices.Clone(r.readFile), p), nil, tmp, os.Stderr); err != nil {
 				return fmt.Errorf("reading %s: %w", p, err)
 			}
 			if hdr.Size, err = tmp.Seek(0, io.SeekCurrent); err != nil {

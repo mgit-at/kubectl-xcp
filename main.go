@@ -40,8 +40,10 @@ Paths follow the rsync convention:
 
 If the container has no tar, a small tar helper is copied into it (needs sh,
 cat, chmod and uname there). Failing that, copies from the container use sh and
-cat file by file. As a last resort, an ephemeral container with tar is added to
-the pod and reaches the container's filesystem through /proc/1/root.`,
+cat file by file. Next, an ephemeral container with tar is added to the pod and
+reaches the container's filesystem through /proc/1/root. As a last resort,
+copies from the container use only shell builtins, which with a plain POSIX sh
+corrupts binary files (a warning says so).`,
 		Example: `  kubectl xcp ./conf/ mypod:/etc/app/      # contents of conf into /etc/app
   kubectl xcp mypod:/data ./backup         # creates ./backup/data
   kubectl xcp -c app ns/mypod:/etc/app.yaml app.yaml`,
@@ -54,7 +56,7 @@ the pod and reaches the container's filesystem through /proc/1/root.`,
 	cmd.Flags().StringVar(&o.rules.ExplicitPath, "kubeconfig", "", "path to the kubeconfig file")
 	clientcmd.BindOverrideFlags(o.overrides, cmd.Flags(), clientcmd.RecommendedConfigOverrideFlags(""))
 	cmd.Flags().StringVarP(&o.container, "container", "c", "", "container name, defaults to the pod's default container")
-	cmd.Flags().StringVar(&o.strategy, "strategy", "auto", "auto, exec (tar in the container), inject (copy a tar helper into the container), shell (sh and cat in the container, only from it) or ephemeral (tar in an ephemeral container)")
+	cmd.Flags().StringVar(&o.strategy, "strategy", "auto", "auto, exec (tar in the container), inject (copy a tar helper into the container), shell (sh and cat in the container, only from it), ephemeral (tar in an ephemeral container) or shell-builtins (only shell builtins in the container, only from it)")
 	cmd.Flags().StringVar(&o.image, "image", "mirror.gcr.io/library/busybox:1.37", "image for the ephemeral container, must contain tar and sh")
 	cmd.Flags().Int64Var(&o.uid, "uid", -1, "user ID for the ephemeral container, must match the target container's")
 	cmd.Flags().Int64Var(&o.gid, "gid", -1, "group ID for the ephemeral container")
@@ -69,7 +71,7 @@ the pod and reaches the container's filesystem through /proc/1/root.`,
 
 func run(ctx context.Context, o *options, src, dst string) error {
 	switch o.strategy {
-	case "auto", "exec", "inject", "shell", "ephemeral":
+	case "auto", "exec", "inject", "shell", "ephemeral", "shell-builtins":
 	default:
 		return fmt.Errorf("unknown strategy %q", o.strategy)
 	}
@@ -78,8 +80,8 @@ func run(ctx context.Context, o *options, src, dst string) error {
 	if (srcPod == "") == (dstPod == "") {
 		return errors.New("exactly one of SRC and DST must be [NAMESPACE/]POD:PATH")
 	}
-	if o.strategy == "shell" && dstPod != "" {
-		return errors.New("the shell strategy can only copy from a container")
+	if (o.strategy == "shell" || o.strategy == "shell-builtins") && dstPod != "" {
+		return fmt.Errorf("the %s strategy can only copy from a container", o.strategy)
 	}
 	pod, remotePath := srcPod, srcPath
 	if dstPod != "" {

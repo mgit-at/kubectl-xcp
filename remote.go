@@ -36,13 +36,16 @@ type remote struct {
 	tar       []string
 	// procRoot reaches the target container's filesystem from an ephemeral container.
 	procRoot bool
-	// shell copies out file by file with sh and cat instead of tar.
-	shell bool
+	// If set, files are copied out one by one: listed with the shell, each
+	// read with readFile plus its path.
+	shell    string
+	readFile []string
 }
 
 // connect picks how to copy, least invasive first: the target's own tar, a
 // tar helper injected into the target, sh and cat in the target (downloads
-// only), or tar in an ephemeral container sharing its process namespace.
+// only), tar in an ephemeral container sharing its process namespace, or
+// shell builtins in the target (downloads only, with caveats).
 func connect(ctx context.Context, o *options, r *remote, upload bool) (*remote, error) {
 	pod, err := r.getPod(ctx)
 	if err != nil {
@@ -90,7 +93,7 @@ func connect(ctx context.Context, o *options, r *remote, upload bool) (*remote, 
 	if !upload && (o.strategy == "auto" || o.strategy == "shell") {
 		err := r.exec(ctx, []string{"sh", "-c", "cat </dev/null"}, nil, io.Discard, io.Discard)
 		if err == nil {
-			r.shell = true
+			r.shell, r.readFile = "sh", []string{"cat"}
 			fmt.Fprintln(os.Stderr, "xcp: copying file by file with sh and cat, modes are approximated and times not preserved")
 			return r, nil
 		}
@@ -98,8 +101,18 @@ func connect(ctx context.Context, o *options, r *remote, upload bool) (*remote, 
 			return nil, fmt.Errorf("no sh and cat in container %q: %w", target, err)
 		}
 	}
-	fmt.Fprintln(os.Stderr, "xcp: using an ephemeral container")
-	return r, r.ephemeral(ctx, o, pod, target)
+	if o.strategy == "auto" || o.strategy == "ephemeral" {
+		fmt.Fprintln(os.Stderr, "xcp: using an ephemeral container")
+		err := r.ephemeral(ctx, o, pod, target)
+		if err == nil {
+			return r, nil
+		}
+		if o.strategy == "ephemeral" || upload || ctx.Err() != nil {
+			return nil, err
+		}
+		fmt.Fprintf(os.Stderr, "xcp: cannot use an ephemeral container (%v)\n", err)
+	}
+	return r, r.builtins(ctx, target)
 }
 
 func (r *remote) ephemeral(ctx context.Context, o *options, pod *corev1.Pod, target string) error {
@@ -257,7 +270,7 @@ func (r *remote) isDir(ctx context.Context, p string) (bool, error) {
 }
 
 func (r *remote) download(ctx context.Context, src, dst string) error {
-	if r.shell {
+	if r.readFile != nil {
 		return r.shellDownload(ctx, src, dst)
 	}
 	dir, name := path.Dir(src), path.Base(src)

@@ -85,3 +85,69 @@ func TestListScript(t *testing.T) {
 		})
 	}
 }
+
+func TestReadScripts(t *testing.T) {
+	dir := t.TempDir()
+	// bash in a UTF-8 locale drops the \x01 of \x7f\xe7\x01\xda unless LC_ALL=C is set.
+	binary := []byte("a\x00b\x7f\xe7\x01\xda\xff\n\x00\x00end")
+	text := []byte("  leading\\back\tslash\n\nno trailing newline")
+	for name, data := range map[string][]byte{"binary": binary, "text": text} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		sh     []string
+		script string
+		files  []string
+	}{
+		{[]string{"bash"}, bashRead, []string{"binary", "text"}},
+		{[]string{"sh"}, shRead, []string{"text"}},
+		{[]string{"dash"}, shRead, []string{"text"}},
+		{[]string{"busybox", "sh"}, shRead, []string{"text"}},
+	} {
+		if _, err := exec.LookPath(tc.sh[0]); err != nil {
+			t.Logf("%s not installed", tc.sh[0])
+			continue
+		}
+		for _, f := range tc.files {
+			p := filepath.Join(dir, f)
+			args := append(slices.Clone(tc.sh[1:]), "-c", tc.script, "sh", p)
+			cmd := exec.Command(tc.sh[0], args...)
+			cmd.Env = append(os.Environ(), "LC_ALL=C.UTF-8")
+			got, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("%v %s: %v", tc.sh, f, err)
+			}
+			want, _ := os.ReadFile(p)
+			if string(got) != string(want) {
+				t.Errorf("%v %s: got %q, want %q", tc.sh, f, got, want)
+			}
+		}
+	}
+}
+
+func TestListScriptWithoutReadlink(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh installed")
+	}
+	dir := t.TempDir()
+	if err := os.Symlink("target", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(sh, "-c", listScript, "sh", dir, ".")
+	cmd.Env = []string{"PATH=" + t.TempDir()}
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := records(string(out)); !slices.Equal(got, []string{"d."}) {
+		t.Errorf("got %q, want only the directory", got)
+	}
+	if !strings.Contains(stderr.String(), "skipping symlink ./link") {
+		t.Errorf("no warning about the skipped symlink: %q", stderr.String())
+	}
+}

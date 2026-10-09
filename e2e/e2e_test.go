@@ -93,6 +93,8 @@ func xcpEnv(env string, args ...string) (string, error) {
 // strategy tells from the notes on stderr which strategy auto mode picked.
 func strategy(stderr string) string {
 	switch {
+	case strings.Contains(stderr, "builtins only"):
+		return "shell-builtins"
 	case strings.Contains(stderr, "using an ephemeral container"):
 		return "ephemeral"
 	case strings.Contains(stderr, "copying file by file"):
@@ -228,5 +230,52 @@ func TestErrors(t *testing.T) {
 	}
 	if stderr, err := xcp("other/withtar:/data", ro+"/x"); err == nil || !strings.Contains(stderr, "permission denied") {
 		t.Errorf("unwritable destination: %v: %s", err, stderr)
+	}
+}
+
+func TestShellBuiltins(t *testing.T) {
+	src := t.TempDir()
+	testtree.Make(t, src)
+	big := make([]byte, 1<<20)
+	rand.Read(big)
+	if err := os.WriteFile(filepath.Join(src, "big"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		pod, warning string
+		binarySafe   bool
+	}{
+		{"nocat", "WARNING: copying with bash builtins only", true},
+		{"nobash", "WARNING: copying with sh builtins only: NUL bytes are silently dropped", false},
+	} {
+		t.Run(tc.pod, func(t *testing.T) {
+			for _, from := range []string{src + "/dir", src + "/big"} {
+				if stderr, err := xcp("-c", "seed", from, tc.pod+":/data/"); err != nil {
+					t.Fatalf("seeding %s: %v: %s", from, err, stderr)
+				}
+			}
+			out := t.TempDir()
+			stderr, err := xcp("-c", "app", tc.pod+":/data/", out)
+			if err != nil {
+				t.Fatalf("%v: %s", err, stderr)
+			}
+			if got := strategy(stderr); got != "shell-builtins" || !strings.Contains(stderr, tc.warning) {
+				t.Errorf("used %s, want shell-builtins with warning %q: %s", got, tc.warning, stderr)
+			}
+			testtree.Equal(t, src+"/dir", out+"/dir")
+			got, err := os.ReadFile(out + "/big")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Equal(got, big) != tc.binarySafe {
+				t.Errorf("binary file intact: %v, want %v", bytes.Equal(got, big), tc.binarySafe)
+			}
+
+			stderr, err = xcp("-c", "app", src+"/file", tc.pod+":/data/up")
+			if err == nil || !strings.Contains(stderr, "shareProcessNamespace") {
+				t.Errorf("upload: %v, want the ephemeral container error: %s", err, stderr)
+			}
+		})
 	}
 }

@@ -30,6 +30,7 @@ func TestRunRejectsArguments(t *testing.T) {
 		{"auto", "pod:/a", "pod:/b", "exactly one"},
 		{"auto", "pod:", "b", "must not be empty"},
 		{"shell", "a", "pod:/b", "only copy from a container"},
+		{"shell-builtins", "a", "pod:/b", "only copy from a container"},
 	} {
 		err := run(context.Background(), &options{strategy: tc.strategy}, tc.src, tc.dst)
 		if err == nil || !strings.Contains(err.Error(), tc.err) {

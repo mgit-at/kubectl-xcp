@@ -55,3 +55,41 @@ spec:
   containers:
   - name: app
     image: registry.k8s.io/pause:3.10
+---
+# No cat, and shareProcessNamespace rules out the ephemeral container, so only
+# shell-builtins is left. The seed sidecar has tar to put the test data in.
+apiVersion: v1
+kind: Pod
+metadata: {name: nocat}
+spec:
+  shareProcessNamespace: true
+  containers:
+  - name: app
+    image: xcp-e2e-nocat:test
+    imagePullPolicy: Never
+    command: [sleep, infinity]
+    volumeMounts: [{name: data, mountPath: /data}]
+  - name: seed
+    image: mirror.gcr.io/library/busybox:1.37
+    command: [sleep, "86400"]
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes: [{name: data, emptyDir: {}}]
+---
+# No cat, and shareProcessNamespace rules out the ephemeral container, so only
+# shell-builtins is left. The seed sidecar has tar to put the test data in.
+apiVersion: v1
+kind: Pod
+metadata: {name: nobash}
+spec:
+  shareProcessNamespace: true
+  containers:
+  - name: app
+    image: xcp-e2e-nobash:test
+    imagePullPolicy: Never
+    command: [sleep, infinity]
+    volumeMounts: [{name: data, mountPath: /data}]
+  - name: seed
+    image: mirror.gcr.io/library/busybox:1.37
+    command: [sleep, "86400"]
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes: [{name: data, emptyDir: {}}]
