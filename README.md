@@ -30,7 +30,11 @@ How the copy is done (`--strategy`, default `auto` tries them in order):
    directory among `/tmp`, `/var/tmp`, `/dev/shm` and the container's
    `emptyDir` mounts. The helper stays there as `.kubectl-xcp-<hash>` and is
    reused by later runs.
-3. `ephemeral`: adds an ephemeral container (`--image`, default `busybox:1.37`)
+3. `shell`: only for copying from the container. Lists the files with `sh`
+   and fetches each with its own `cat` (`readlink` for symlinks), so it works
+   on read-only root filesystems. Modes are approximated (executable or not)
+   and times are not preserved; slow for many small files.
+4. `ephemeral`: adds an ephemeral container (`--image`, default `busybox:1.37`)
    targeting the container and reaches its filesystem, including volumes,
    through `/proc/1/root`. Needs `pods/exec` and `patch` on
    `pods/ephemeralcontainers`, like `kubectl debug`.

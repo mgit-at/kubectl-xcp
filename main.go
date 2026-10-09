@@ -35,8 +35,9 @@ Paths follow the rsync convention:
   DST/  is always a directory and is created if missing
 
 If the container has no tar, a small tar helper is copied into it (needs sh,
-cat, chmod and uname there). If that fails too, an ephemeral container with tar
-is added to the pod and reaches the container's filesystem through /proc/1/root.`,
+cat, chmod and uname there). Failing that, copies from the container use sh and
+cat file by file. As a last resort, an ephemeral container with tar is added to
+the pod and reaches the container's filesystem through /proc/1/root.`,
 		Example: `  kubectl xcp ./conf/ mypod:/etc/app/      # contents of conf into /etc/app
   kubectl xcp mypod:/data ./backup         # creates ./backup/data
   kubectl xcp -c app ns/mypod:/etc/app.yaml app.yaml`,
@@ -48,7 +49,7 @@ is added to the pod and reaches the container's filesystem through /proc/1/root.
 	}
 	o.flags.AddFlags(cmd.Flags())
 	cmd.Flags().StringVarP(&o.container, "container", "c", "", "container name, defaults to the pod's default container")
-	cmd.Flags().StringVar(&o.strategy, "strategy", "auto", "auto, exec (tar in the container), inject (copy a tar helper into the container) or ephemeral (tar in an ephemeral container)")
+	cmd.Flags().StringVar(&o.strategy, "strategy", "auto", "auto, exec (tar in the container), inject (copy a tar helper into the container), shell (sh and cat in the container, only from it) or ephemeral (tar in an ephemeral container)")
 	cmd.Flags().StringVar(&o.image, "image", "busybox:1.37", "image for the ephemeral container, must contain tar and sh")
 	cmd.Flags().Int64Var(&o.uid, "uid", -1, "user ID for the ephemeral container, must match the target container's")
 	cmd.Flags().Int64Var(&o.gid, "gid", -1, "group ID for the ephemeral container")
@@ -63,7 +64,7 @@ is added to the pod and reaches the container's filesystem through /proc/1/root.
 
 func run(ctx context.Context, o *options, src, dst string) error {
 	switch o.strategy {
-	case "auto", "exec", "inject", "ephemeral":
+	case "auto", "exec", "inject", "shell", "ephemeral":
 	default:
 		return fmt.Errorf("unknown strategy %q", o.strategy)
 	}
@@ -71,6 +72,9 @@ func run(ctx context.Context, o *options, src, dst string) error {
 	dstPod, dstPath := splitRemote(dst)
 	if (srcPod == "") == (dstPod == "") {
 		return errors.New("exactly one of SRC and DST must be [NAMESPACE/]POD:PATH")
+	}
+	if o.strategy == "shell" && dstPod != "" {
+		return errors.New("the shell strategy can only copy from a container")
 	}
 	pod, remotePath := srcPod, srcPath
 	if dstPod != "" {
@@ -96,7 +100,7 @@ func run(ctx context.Context, o *options, src, dst string) error {
 		ns, pod = n, p
 	}
 
-	r, err := connect(ctx, o, &remote{client: client, config: config, ns: ns, pod: pod})
+	r, err := connect(ctx, o, &remote{client: client, config: config, ns: ns, pod: pod}, dstPod != "")
 	if err != nil {
 		return err
 	}

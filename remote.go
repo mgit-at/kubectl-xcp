@@ -37,11 +37,14 @@ type remote struct {
 	tar       []string
 	// procRoot reaches the target container's filesystem from an ephemeral container.
 	procRoot bool
+	// shell copies out file by file with sh and cat instead of tar.
+	shell bool
 }
 
-// connect picks the tar to use: the target's own, a helper injected into the
-// target, or one in an ephemeral container sharing its process namespace.
-func connect(ctx context.Context, o *options, r *remote) (*remote, error) {
+// connect picks how to copy, least invasive first: the target's own tar, a
+// tar helper injected into the target, sh and cat in the target (downloads
+// only), or tar in an ephemeral container sharing its process namespace.
+func connect(ctx context.Context, o *options, r *remote, upload bool) (*remote, error) {
 	pod, err := r.client.CoreV1().Pods(r.ns).Get(ctx, r.pod, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
@@ -83,8 +86,20 @@ func connect(ctx context.Context, o *options, r *remote) (*remote, error) {
 		if o.strategy == "inject" || ctx.Err() != nil {
 			return nil, err
 		}
-		fmt.Fprintf(os.Stderr, "xcp: cannot inject a tar helper into container %q (%v), using an ephemeral container\n", target, err)
+		fmt.Fprintf(os.Stderr, "xcp: cannot inject a tar helper into container %q (%v)\n", target, err)
 	}
+	if !upload && (o.strategy == "auto" || o.strategy == "shell") {
+		err := r.exec(ctx, []string{"sh", "-c", "cat </dev/null"}, nil, io.Discard, io.Discard)
+		if err == nil {
+			r.shell = true
+			fmt.Fprintln(os.Stderr, "xcp: copying file by file with sh and cat, modes are approximated and times not preserved")
+			return r, nil
+		}
+		if o.strategy == "shell" || ctx.Err() != nil {
+			return nil, fmt.Errorf("no sh and cat in container %q: %w", target, err)
+		}
+	}
+	fmt.Fprintln(os.Stderr, "xcp: using an ephemeral container")
 	return r, r.ephemeral(ctx, o, pod, target)
 }
 
@@ -238,6 +253,9 @@ func (r *remote) isDir(ctx context.Context, p string) (bool, error) {
 }
 
 func (r *remote) download(ctx context.Context, src, dst string) error {
+	if r.shell {
+		return r.shellDownload(ctx, src, dst)
+	}
 	dir, name := path.Dir(src), path.Base(src)
 	if strings.HasSuffix(src, "/") {
 		dir, name = src, "."
