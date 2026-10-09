@@ -55,7 +55,7 @@ the pod and reaches the container's filesystem through /proc/1/root.`,
 	clientcmd.BindOverrideFlags(o.overrides, cmd.Flags(), clientcmd.RecommendedConfigOverrideFlags(""))
 	cmd.Flags().StringVarP(&o.container, "container", "c", "", "container name, defaults to the pod's default container")
 	cmd.Flags().StringVar(&o.strategy, "strategy", "auto", "auto, exec (tar in the container), inject (copy a tar helper into the container), shell (sh and cat in the container, only from it) or ephemeral (tar in an ephemeral container)")
-	cmd.Flags().StringVar(&o.image, "image", "busybox:1.37", "image for the ephemeral container, must contain tar and sh")
+	cmd.Flags().StringVar(&o.image, "image", "mirror.gcr.io/library/busybox:1.37", "image for the ephemeral container, must contain tar and sh")
 	cmd.Flags().Int64Var(&o.uid, "uid", -1, "user ID for the ephemeral container, must match the target container's")
 	cmd.Flags().Int64Var(&o.gid, "gid", -1, "group ID for the ephemeral container")
 
