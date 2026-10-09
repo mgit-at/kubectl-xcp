@@ -1,0 +1,34 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # The list script test runs under every shell it finds.
+      - run: sudo apt-get update && sudo apt-get install -y busybox
+      - run: go generate ./...
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./... && go vet -tags e2e ./...
+      - run: go test ./...
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # kind, kubectl and docker come with the runner image.
+      - run: ./hack/e2e.sh
