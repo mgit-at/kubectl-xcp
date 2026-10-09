@@ -48,6 +48,16 @@ Files from the container are treated as untrusted: entries escaping the
 destination (`..`, absolute paths, symlinks) are rejected. Hard links and
 special files are skipped with a warning.
 
+## Testing
+
+```sh
+go generate && go test ./...   # unit tests, no cluster needed
+./hack/e2e.sh                  # e2e tests in a throwaway kind cluster (needs kind, docker, kubectl)
+```
+
+The e2e tests refuse to run against anything but a `kind-*` context, as they
+add ephemeral containers that cannot be removed again.
+
 ## GOALs
 
 working tooling for debgging container in k8s in environments that don't have an "allow all" config or where the debugging person is NOT cluster-admin
