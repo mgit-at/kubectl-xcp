@@ -44,6 +44,13 @@ func TestExtractRsyncRules(t *testing.T) {
 	mustWrite(t, filepath.Join(src, "dir/a"), "A")
 	mustWrite(t, filepath.Join(src, "dir/sub/b"), "B")
 	mustWrite(t, filepath.Join(src, "file"), "F")
+	tricky := []string{"new\nline", "-dash", ".dot", "..dots", "with space"}
+	for _, n := range tricky {
+		mustWrite(t, filepath.Join(src, "dir", n), n)
+	}
+	if err := os.Mkdir(filepath.Join(src, "dir/empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink("a", filepath.Join(src, "dir/link")); err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +68,12 @@ func TestExtractRsyncRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustRead(t, filepath.Join(dst, "d2/sub/b"), "B")
+	for _, n := range tricky {
+		mustRead(t, filepath.Join(dst, "d2", n), n)
+	}
+	if fi, err := os.Stat(filepath.Join(dst, "d2/empty")); err != nil || !fi.IsDir() {
+		t.Fatalf("empty dir not copied: %v", err)
+	}
 
 	// file to a new name.
 	if err := Extract(remoteTar(t, src, "file"), filepath.Join(dst, "renamed")); err != nil {
