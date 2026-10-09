@@ -6,10 +6,29 @@ This project should also serve as a stark reminder of the complexity of kubernet
 
 And will hopefully one day provided via a simple install with [krew - kubectl plugin manager](https://krew.sigs.k8s.io/) 
 
-## Usage
+## Install
+
+With [krew](https://krew.sigs.k8s.io/), from the custom index in this repo:
+
+```sh
+kubectl krew index add mgit https://github.com/mgit-at/kubectl-xcp.git
+kubectl krew install mgit/xcp
+```
+
+Or download an archive from the [releases](https://github.com/mgit-at/kubectl-xcp/releases)
+(Linux and macOS, amd64 and arm64), or build it yourself:
 
 ```sh
 go generate && go build -trimpath -ldflags "-s -w" -o kubectl-xcp . && mv kubectl-xcp ~/.local/bin/   # anywhere in $PATH
+```
+
+A release is made by pushing a `vMAJOR.MINOR.PATCH` tag: the release workflow
+runs the tests, publishes the archives and commits the krew manifest
+`plugins/xcp.yaml` to `main`.
+
+## Usage
+
+```sh
 
 kubectl xcp ./conf/ mypod:/etc/app/      # contents of conf into /etc/app
 kubectl xcp mypod:/data ./backup         # creates ./backup/data
