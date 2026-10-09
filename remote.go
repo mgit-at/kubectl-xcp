@@ -17,12 +17,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 	utilexec "k8s.io/client-go/util/exec"
@@ -30,7 +28,8 @@ import (
 )
 
 type remote struct {
-	client    kubernetes.Interface
+	client    *rest.RESTClient
+	codec     runtime.ParameterCodec
 	config    *rest.Config
 	ns, pod   string
 	container string
@@ -45,7 +44,7 @@ type remote struct {
 // tar helper injected into the target, sh and cat in the target (downloads
 // only), or tar in an ephemeral container sharing its process namespace.
 func connect(ctx context.Context, o *options, r *remote, upload bool) (*remote, error) {
-	pod, err := r.client.CoreV1().Pods(r.ns).Get(ctx, r.pod, metav1.GetOptions{})
+	pod, err := r.getPod(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +149,7 @@ func (r *remote) ephemeral(ctx context.Context, o *options, pod *corev1.Pod, tar
 			return err
 		}
 		// Patch like kubectl debug, so the same RBAC rules apply.
-		_, err = r.client.CoreV1().Pods(r.ns).Patch(ctx, r.pod, types.StrategicMergePatchType, patch, metav1.PatchOptions{}, "ephemeralcontainers")
+		err = r.client.Patch(types.StrategicMergePatchType).Namespace(r.ns).Resource("pods").Name(r.pod).SubResource("ephemeralcontainers").Body(patch).Do(ctx).Error()
 		if err != nil {
 			return fmt.Errorf("adding ephemeral container: %w", err)
 		}
@@ -171,6 +170,11 @@ func (r *remote) ephemeral(ctx context.Context, o *options, pod *corev1.Pod, tar
 	return nil
 }
 
+func (r *remote) getPod(ctx context.Context) (*corev1.Pod, error) {
+	pod := &corev1.Pod{}
+	return pod, r.client.Get().Namespace(r.ns).Resource("pods").Name(r.pod).Do(ctx).Into(pod)
+}
+
 func running(pod *corev1.Pod, name string) bool {
 	for _, s := range pod.Status.EphemeralContainerStatuses {
 		if s.Name == name {
@@ -182,7 +186,7 @@ func running(pod *corev1.Pod, name string) bool {
 
 func (r *remote) waitRunning(ctx context.Context, name string) error {
 	return wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
-		pod, err := r.client.CoreV1().Pods(r.ns).Get(ctx, r.pod, metav1.GetOptions{})
+		pod, err := r.getPod(ctx)
 		if err != nil {
 			return false, err
 		}
@@ -205,7 +209,7 @@ func (r *remote) waitRunning(ctx context.Context, name string) error {
 }
 
 func (r *remote) exec(ctx context.Context, cmd []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	req := r.client.CoreV1().RESTClient().Post().
+	req := r.client.Post().
 		Resource("pods").Namespace(r.ns).Name(r.pod).SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
 			Container: r.container,
@@ -213,7 +217,7 @@ func (r *remote) exec(ctx context.Context, cmd []string, stdin io.Reader, stdout
 			Stdin:     stdin != nil,
 			Stdout:    true,
 			Stderr:    true,
-		}, scheme.ParameterCodec)
+		}, r.codec)
 	// Same transport selection as kubectl exec.
 	ws, err := remotecommand.NewWebSocketExecutor(r.config, "GET", req.URL().String())
 	if err != nil {

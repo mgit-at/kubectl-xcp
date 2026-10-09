@@ -9,12 +9,16 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/client-go/kubernetes"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 type options struct {
-	flags     *genericclioptions.ConfigFlags
+	rules     *clientcmd.ClientConfigLoadingRules
+	overrides *clientcmd.ConfigOverrides
 	container string
 	strategy  string
 	image     string
@@ -22,7 +26,7 @@ type options struct {
 }
 
 func main() {
-	o := &options{flags: genericclioptions.NewConfigFlags(true)}
+	o := &options{rules: clientcmd.NewDefaultClientConfigLoadingRules(), overrides: &clientcmd.ConfigOverrides{}}
 	cmd := &cobra.Command{
 		Use:   "kubectl xcp [flags] SRC DST",
 		Short: "Copy files and directories to and from containers, even without tar in them",
@@ -47,7 +51,8 @@ the pod and reaches the container's filesystem through /proc/1/root.`,
 			return run(cmd.Context(), o, args[0], args[1])
 		},
 	}
-	o.flags.AddFlags(cmd.Flags())
+	cmd.Flags().StringVar(&o.rules.ExplicitPath, "kubeconfig", "", "path to the kubeconfig file")
+	clientcmd.BindOverrideFlags(o.overrides, cmd.Flags(), clientcmd.RecommendedConfigOverrideFlags(""))
 	cmd.Flags().StringVarP(&o.container, "container", "c", "", "container name, defaults to the pod's default container")
 	cmd.Flags().StringVar(&o.strategy, "strategy", "auto", "auto, exec (tar in the container), inject (copy a tar helper into the container), shell (sh and cat in the container, only from it) or ephemeral (tar in an ephemeral container)")
 	cmd.Flags().StringVar(&o.image, "image", "busybox:1.37", "image for the ephemeral container, must contain tar and sh")
@@ -84,15 +89,23 @@ func run(ctx context.Context, o *options, src, dst string) error {
 		return errors.New("remote path must not be empty")
 	}
 
-	config, err := o.flags.ToRESTConfig()
+	kubeconfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(o.rules, o.overrides)
+	config, err := kubeconfig.ClientConfig()
 	if err != nil {
 		return err
 	}
-	client, err := kubernetes.NewForConfig(config)
+	// Only core/v1 is registered: the full clientset links every API group.
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		return err
+	}
+	config.APIPath, config.GroupVersion = "/api", &corev1.SchemeGroupVersion
+	config.NegotiatedSerializer = serializer.NewCodecFactory(scheme).WithoutConversion()
+	client, err := rest.RESTClientFor(config)
 	if err != nil {
 		return err
 	}
-	ns, _, err := o.flags.ToRawKubeConfigLoader().Namespace()
+	ns, _, err := kubeconfig.Namespace()
 	if err != nil {
 		return err
 	}
@@ -100,7 +113,7 @@ func run(ctx context.Context, o *options, src, dst string) error {
 		ns, pod = n, p
 	}
 
-	r, err := connect(ctx, o, &remote{client: client, config: config, ns: ns, pod: pod}, dstPod != "")
+	r, err := connect(ctx, o, &remote{client: client, codec: runtime.NewParameterCodec(scheme), config: config, ns: ns, pod: pod}, dstPod != "")
 	if err != nil {
 		return err
 	}

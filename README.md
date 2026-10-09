@@ -9,7 +9,7 @@ And will hopefully one day provided via a simple install with [krew - kubectl pl
 ## Usage
 
 ```sh
-go generate && go build -o kubectl-xcp . && mv kubectl-xcp ~/.local/bin/   # anywhere in $PATH
+go generate && go build -trimpath -ldflags "-s -w" -o kubectl-xcp . && mv kubectl-xcp ~/.local/bin/   # anywhere in $PATH
 
 kubectl xcp ./conf/ mypod:/etc/app/      # contents of conf into /etc/app
 kubectl xcp mypod:/data ./backup         # creates ./backup/data
