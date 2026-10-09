@@ -1,4 +1,4 @@
-package main
+package archive
 
 import (
 	"archive/tar"
@@ -12,9 +12,9 @@ import (
 	"strings"
 )
 
-// writeTar writes the local src as a tar stream, with src itself named name
+// WriteTar writes src as a tar stream, with src itself named name
 // ("" to only write its contents).
-func writeTar(w io.Writer, src, name string) error {
+func WriteTar(w io.Writer, src, name string) error {
 	tw := tar.NewWriter(w)
 	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -66,9 +66,9 @@ func writeTar(w io.Writer, src, name string) error {
 	return tw.Close()
 }
 
-// extract unpacks a tar stream below the local dst. A single file is written
+// Extract unpacks a tar stream below dst. A single file is written
 // as dst itself, unless dst ends in "/" or is an existing directory (rsync rules).
-func extract(r io.Reader, dst string) error {
+func Extract(r io.Reader, dst string) error {
 	tr := tar.NewReader(r)
 	hdr, err := tr.Next()
 	if err == io.EOF {

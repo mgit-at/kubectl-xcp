@@ -9,7 +9,7 @@ And will hopefully one day provided via a simple install with [krew - kubectl pl
 ## Usage
 
 ```sh
-go build -o kubectl-xcp . && mv kubectl-xcp ~/.local/bin/   # anywhere in $PATH
+go generate && go build -o kubectl-xcp . && mv kubectl-xcp ~/.local/bin/   # anywhere in $PATH
 
 kubectl xcp ./conf/ mypod:/etc/app/      # contents of conf into /etc/app
 kubectl xcp mypod:/data ./backup         # creates ./backup/data
@@ -24,7 +24,13 @@ How the copy is done (`--strategy`, default `auto` tries them in order):
 
 1. `exec`: `tar` (or `busybox tar`) inside the container, like `kubectl cp`.
    Needs `pods/exec`.
-2. `ephemeral`: adds an ephemeral container (`--image`, default `busybox:1.37`)
+2. `inject`: copies a small static tar helper (`helper/`, embedded for x86_64
+   and aarch64) into the container and runs it. Needs `pods/exec` and `sh`,
+   `cat`, `chmod` and `uname` in the container, plus a writable, executable
+   directory among `/tmp`, `/var/tmp`, `/dev/shm` and the container's
+   `emptyDir` mounts. The helper stays there as `.kubectl-xcp-<hash>` and is
+   reused by later runs.
+3. `ephemeral`: adds an ephemeral container (`--image`, default `busybox:1.37`)
    targeting the container and reaches its filesystem, including volumes,
    through `/proc/1/root`. Needs `pods/exec` and `patch` on
    `pods/ephemeralcontainers`, like `kubectl debug`.
@@ -48,7 +54,7 @@ working tooling for debgging container in k8s in environments that don't have an
 
 ## TODOs
 
-- `kubectl cp` for containers without `tar` where ephemeral containers are not allowed (e.g. `cat`/`sh` based, or injecting a static helper)
+- `kubectl cp` for containers without a shell where ephemeral containers are not allowed (e.g. a helper pod mounting the same PVC)
 - usable `kubectl debug` to connect INTO a running container in a pod and debug running daemons
   - like interacting with files and PVs (this does not work with `kubectl debug` and makes it practically useless for most of our usecases)
   - seeing processes (granted that works with `kubectl debug --target`)

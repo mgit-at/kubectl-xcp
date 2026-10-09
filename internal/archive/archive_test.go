@@ -1,4 +1,4 @@
-package main
+package archive
 
 import (
 	"archive/tar"
@@ -33,7 +33,7 @@ func mustRead(t *testing.T, p, want string) {
 func remoteTar(t *testing.T, dir, name string) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
-	if err := writeTar(&buf, filepath.Join(dir, name), name); err != nil {
+	if err := WriteTar(&buf, filepath.Join(dir, name), name); err != nil {
 		t.Fatal(err)
 	}
 	return &buf
@@ -50,20 +50,20 @@ func TestExtractRsyncRules(t *testing.T) {
 
 	dst := t.TempDir()
 	// dir: copies the directory itself.
-	if err := extract(remoteTar(t, src, "dir"), filepath.Join(dst, "d1")); err != nil {
+	if err := Extract(remoteTar(t, src, "dir"), filepath.Join(dst, "d1")); err != nil {
 		t.Fatal(err)
 	}
 	mustRead(t, filepath.Join(dst, "d1/dir/sub/b"), "B")
 	mustRead(t, filepath.Join(dst, "d1/dir/link"), "A")
 
 	// dir/: copies the contents.
-	if err := extract(remoteTar(t, filepath.Join(src, "dir"), "."), filepath.Join(dst, "d2")); err != nil {
+	if err := Extract(remoteTar(t, filepath.Join(src, "dir"), "."), filepath.Join(dst, "d2")); err != nil {
 		t.Fatal(err)
 	}
 	mustRead(t, filepath.Join(dst, "d2/sub/b"), "B")
 
 	// file to a new name.
-	if err := extract(remoteTar(t, src, "file"), filepath.Join(dst, "renamed")); err != nil {
+	if err := Extract(remoteTar(t, src, "file"), filepath.Join(dst, "renamed")); err != nil {
 		t.Fatal(err)
 	}
 	mustRead(t, filepath.Join(dst, "renamed"), "F")
@@ -72,11 +72,11 @@ func TestExtractRsyncRules(t *testing.T) {
 	}
 
 	// file into a directory given with a trailing slash, or an existing one.
-	if err := extract(remoteTar(t, src, "file"), filepath.Join(dst, "d3")+"/"); err != nil {
+	if err := Extract(remoteTar(t, src, "file"), filepath.Join(dst, "d3")+"/"); err != nil {
 		t.Fatal(err)
 	}
 	mustRead(t, filepath.Join(dst, "d3/file"), "F")
-	if err := extract(remoteTar(t, src, "file"), filepath.Join(dst, "d1")); err != nil {
+	if err := Extract(remoteTar(t, src, "file"), filepath.Join(dst, "d1")); err != nil {
 		t.Fatal(err)
 	}
 	mustRead(t, filepath.Join(dst, "d1/file"), "F")
@@ -101,7 +101,7 @@ func TestExtractRejectsEscapes(t *testing.T) {
 				}
 			}
 			tw.Close()
-			if err := extract(&buf, filepath.Join(t.TempDir(), "out")+"/"); err == nil {
+			if err := Extract(&buf, filepath.Join(t.TempDir(), "out")+"/"); err == nil {
 				t.Fatal("expected an error")
 			}
 		})

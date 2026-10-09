@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mgit-at/kubectl-xcp/internal/archive"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -38,8 +39,8 @@ type remote struct {
 	procRoot bool
 }
 
-// connect picks the container to run tar in: the target itself if it has tar,
-// otherwise an ephemeral container sharing its process namespace.
+// connect picks the tar to use: the target's own, a helper injected into the
+// target, or one in an ephemeral container sharing its process namespace.
 func connect(ctx context.Context, o *options, r *remote) (*remote, error) {
 	pod, err := r.client.CoreV1().Pods(r.ns).Get(ctx, r.pod, metav1.GetOptions{})
 	if err != nil {
@@ -54,7 +55,7 @@ func connect(ctx context.Context, o *options, r *remote) (*remote, error) {
 	}
 	r.container = target
 
-	if o.strategy != "ephemeral" {
+	if o.strategy == "auto" || o.strategy == "exec" {
 		var err error
 		for _, tar := range [][]string{{"tar"}, {"busybox", "tar"}} {
 			err = r.exec(ctx, append(slices.Clone(tar), "-c", "-f", "/dev/null", "/dev/null"), nil, io.Discard, io.Discard)
@@ -71,7 +72,18 @@ func connect(ctx context.Context, o *options, r *remote) (*remote, error) {
 		if o.strategy == "exec" {
 			return nil, fmt.Errorf("no usable tar in container %q: %w", target, err)
 		}
-		fmt.Fprintf(os.Stderr, "xcp: no usable tar in container %q (%v), using an ephemeral container\n", target, err)
+		// The probe error is runtime noise like "executable file not found".
+		fmt.Fprintf(os.Stderr, "xcp: no usable tar in container %q\n", target)
+	}
+	if o.strategy == "auto" || o.strategy == "inject" {
+		err := r.inject(ctx, pod)
+		if err == nil {
+			return r, nil
+		}
+		if o.strategy == "inject" || ctx.Err() != nil {
+			return nil, err
+		}
+		fmt.Fprintf(os.Stderr, "xcp: cannot inject a tar helper into container %q (%v), using an ephemeral container\n", target, err)
 	}
 	return r, r.ephemeral(ctx, o, pod, target)
 }
@@ -238,7 +250,7 @@ func (r *remote) download(ctx context.Context, src, dst string) error {
 		pw.CloseWithError(err)
 		execErr <- err
 	}()
-	err := extract(pr, dst)
+	err := archive.Extract(pr, dst)
 	if err == nil {
 		// Drain the archive padding, and receive the exit status of tar.
 		_, err = io.Copy(io.Discard, pr)
@@ -283,7 +295,7 @@ func (r *remote) upload(ctx context.Context, src, dst string) error {
 	pr, pw := io.Pipe()
 	werr := make(chan error, 1)
 	go func() {
-		err := writeTar(pw, src, name)
+		err := archive.WriteTar(pw, src, name)
 		pw.CloseWithError(err)
 		werr <- err
 	}()

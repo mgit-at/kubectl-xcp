@@ -23,3 +23,4 @@ go.work.sum
 
 # Plugin binary
 /kubectl-xcp
+/helper/bin/
