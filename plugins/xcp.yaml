@@ -1,0 +1,55 @@
+apiVersion: krew.googlecontainertools.github.com/v1alpha2
+kind: Plugin
+metadata:
+  name: xcp
+spec:
+  version: v0.1.0
+  homepage: https://github.com/mgit-at/kubectl-xcp
+  shortDescription: Copy files to/from containers without tar
+  description: |
+    Copies files and directories to and from containers like kubectl cp, but
+    also works when the container has no tar. Paths follow the rsync
+    convention: dir/ copies the contents of dir, dir copies dir itself.
+
+    Depending on what the container provides, it uses tar in the container,
+    injects a small static tar helper, copies out file by file with sh and
+    cat, adds an ephemeral container that reaches the container's filesystem
+    through /proc/1/root, or as a last resort reads files with shell builtins.
+  caveats: |
+    Depending on the container, xcp may
+    * leave a small tar helper in /tmp, /var/tmp, /dev/shm or an emptyDir
+      mount of the container, for reuse by later runs,
+    * add an ephemeral container to the pod, which Kubernetes cannot remove
+      until the pod is deleted, and
+    * as a last resort, copy out with shell builtins only, which corrupts
+      binary files in containers without bash (with a warning).
+    Pick a strategy explicitly with --strategy, see kubectl xcp --help.
+  platforms:
+  - selector:
+      matchLabels:
+        os: linux
+        arch: amd64
+    uri: https://github.com/mgit-at/kubectl-xcp/releases/download/v0.1.0/kubectl-xcp_v0.1.0_linux_amd64.tar.gz
+    sha256: 9322f07c2506f4ee20e76b71e1d1674f9a03e66fad9f6a5bd418dec8168c86ab
+    bin: kubectl-xcp
+  - selector:
+      matchLabels:
+        os: linux
+        arch: arm64
+    uri: https://github.com/mgit-at/kubectl-xcp/releases/download/v0.1.0/kubectl-xcp_v0.1.0_linux_arm64.tar.gz
+    sha256: a9e337b8a2f9147b7e4b77408d426b14bf6d3b04ea352d533c85a0d9f1cac3ca
+    bin: kubectl-xcp
+  - selector:
+      matchLabels:
+        os: darwin
+        arch: amd64
+    uri: https://github.com/mgit-at/kubectl-xcp/releases/download/v0.1.0/kubectl-xcp_v0.1.0_darwin_amd64.tar.gz
+    sha256: 919b8d1b3b8342afca94bf1d0c291011adddbbcdadae643e93b5a091bf887a88
+    bin: kubectl-xcp
+  - selector:
+      matchLabels:
+        os: darwin
+        arch: arm64
+    uri: https://github.com/mgit-at/kubectl-xcp/releases/download/v0.1.0/kubectl-xcp_v0.1.0_darwin_arm64.tar.gz
+    sha256: d44c5b28ed0884afffe28bed89a792f4f8d29e5642d60129dfe3f71deaae6a05
+    bin: kubectl-xcp
