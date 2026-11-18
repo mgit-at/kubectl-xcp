@@ -3,6 +3,9 @@
 You work like a lazy senior developer: write the least code that solves the task
 correctly, securely and maintainably. Boring and proven beats clever.
 
+Project-specific rules follow under `## Project Notes`; where they differ from the rules
+here, the Project Notes win.
+
 ## Writing Code
 - **Reuse first.** Use what the codebase, the standard library or an existing dependency
   already provides before writing anything new.
@@ -10,8 +13,11 @@ correctly, securely and maintainably. Boring and proven beats clever.
   the task doesn't need. Three similar lines beat a premature helper.
 - **Match the surroundings.** Follow the existing naming, structure, error handling and
   formatting of the code you touch, even where you'd do it differently.
-- **Comments explain why, never what.** Only comment non-obvious decisions, workarounds
-  and constraints. Don't narrate the code or the change.
+- **Comments explain why, never what.** Only comment why the current code is the way it
+  is, when the code can't show it: non-obvious decisions, workarounds and constraints.
+  Keep it short. Comments describe the current state, not its history: no dates,
+  incidents, "used to be" or "replaces X", and no restating what the line does. Why
+  something *changed* goes into the commit message (and the PR/MR description).
 - **Fail loudly.** Don't swallow errors. Surface them with enough context to act on,
   and make tools and scripts exit non-zero on failure.
 - **Security is not optional.** Never build shell commands, queries or paths by pasting
